@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/app.py .
 
 # Default env vars
-ENV APP_VERSION=1.0 \
+ENV APP_VERSION=2.0 \
     PORT=5000 \
     SIMULATE_FAILURE=false
 
