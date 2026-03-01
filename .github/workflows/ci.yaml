@@ -1,0 +1,71 @@
+name: CI - Build and Push Docker Image
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*.*"
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE_NAME: lathiya97/demo-k8s-api
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "is_tag=true" >> "$GITHUB_OUTPUT"
+          else
+            VERSION="latest"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "is_tag=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Docker Image
+        run: |
+          docker build \
+            --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
+            -t $IMAGE_NAME:${{ steps.version.outputs.version }} \
+            -t $IMAGE_NAME:${{ github.sha }} \
+            -f docker/Dockerfile .
+
+      - name: Tag as latest (on version tags)
+        if: steps.version.outputs.is_tag == 'true'
+        run: |
+          docker tag $IMAGE_NAME:${{ steps.version.outputs.version }} $IMAGE_NAME:latest
+
+      - name: Push Docker Images
+        if: github.event_name != 'pull_request'
+        run: |
+          docker push $IMAGE_NAME:${{ steps.version.outputs.version }}
+          docker push $IMAGE_NAME:${{ github.sha }}
+          if [[ "${{ steps.version.outputs.is_tag }}" == "true" ]]; then
+            docker push $IMAGE_NAME:latest
+          fi
+
+      - name: Print image info
+        run: |
+          echo "   Image: $IMAGE_NAME:${{ steps.version.outputs.version }}"
+          echo "   Git SHA: ${{ github.sha }}"
+          echo "   Git Ref: ${{ github.ref }}"

@@ -1,0 +1,53 @@
+name: CD - Deploy to Minikube
+
+on:
+  workflow_run:
+    workflows: ["CI - Build and Push Docker Image"]
+    types:
+      - completed
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
+
+      - name: Apply Kubernetes Manifests
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+
+      - name: Wait for Rollout
+        id: rollout
+        run: |
+          if kubectl rollout status deployment/demo-k8s-api --timeout=120s; then
+            echo "status=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate Deployment
+        id: validate
+        run: |
+          chmod +x scripts/validate.sh
+          if ./scripts/validate.sh; then
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rollback on Failure
+        if: steps.validate.outputs.healthy == 'false'
+        run: |
+          echo "⚠️Deployment unhealthy — rolling back..."
+          kubectl rollout undo deployment/demo-k8s-api
+          kubectl rollout status deployment/demo-k8s-api --timeout=120s
+          echo " Rollback complete."
