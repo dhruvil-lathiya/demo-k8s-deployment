@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-k8s-api
+  labels:
+    app: demo-k8s-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: demo-k8s-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1            # Allow 1 extra pod during update
+      maxUnavailable: 0      # Zero downtime — don't kill a pod before new one is ready
+  template:
+    metadata:
+      labels:
+        app: demo-k8s-api
+    spec:
+      containers:
+        - name: demo-k8s-api
+          image: lathiya97/demo-k8s-api:1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+          env:
+            - name: APP_VERSION
+              value: "1.0"
+            - name: SIMULATE_FAILURE
+              value: "false"
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
