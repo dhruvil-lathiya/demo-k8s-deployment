@@ -1,23 +1,21 @@
 # Demo K8s Deployment — Kubernetes Deployment Lifecycle
 
-A complete Kubernetes deployment lifecycle demonstration for a Python/Flask API, including versioned rolling updates, failure simulation, troubleshooting, rollback, and automated deployment validation.
+This is a demo of deploying a Python/Flask API on Kubernetes. It covers version updates, testing simulated failures and fixing it. 
 
 ## Architecture
 
-```
 GitHub Repo (tags: v1.0, v2.0)
     │
-    ├── GitHub Actions CI ─── Build & Push ──► Docker Hub (lathiya97/demo-k8s-api)
+    |- GitHub Actions CI - Build & Push ─> Docker Hub (lathiya97/demo-k8s-api)
     │
-    └── GitHub Actions CD ─── Deploy ──► Minikube Cluster
+    └- GitHub Actions CD - Deploy -> Minikube Cluster
                                             ├── Deployment (3 replicas, RollingUpdate)
                                             ├── Service (NodePort:30007)
                                             └── Health Probes → /health, /ready
-```
 
 ## Versioning Strategy
 
-The project uses **Semantic Versioning** with Git-to-Docker traceability. Each Git tag maps directly to a Docker image tag, providing full auditability from source code to running container.
+Each Git tag is directly linked to a Docker image tag. This makes it easy to track and check which source code is used in the running container.
 
 | Git Tag    | Docker Image Tag                   | Description           |
 |------------|------------------------------------|-----------------------|
@@ -25,7 +23,7 @@ The project uses **Semantic Versioning** with Git-to-Docker traceability. Each G
 | `v2.0`     | `lathiya97/demo-k8s-api:2.0`      | Rolling update        |
 | —          | `lathiya97/demo-k8s-api:bad`       | Simulated failure     |
 
-The CI pipeline also tags every image with the Git commit SHA for exact commit traceability. The `latest` tag is only applied on version tag pushes — production deployments always reference explicit version tags.
+The CI pipeline also adds a Git commit SHA tag to every image. This helps to know the exact commit used for that image. The latest tag is used only when a version tag is pushed. For production deployment, we always use a proper version tag, not the latest tag.
 
 ## Deployment Workflow
 
@@ -39,7 +37,7 @@ The CI pipeline also tags every image with the Git commit SHA for exact commit t
 
 #### 1. Initial Deployment (v1.0)
 
-```bash
+
 # Build and load image into minikube
 docker build -t lathiya97/demo-k8s-api:1.0 -f docker/Dockerfile .
 minikube image load lathiya97/demo-k8s-api:1.0
@@ -51,11 +49,11 @@ kubectl apply -f k8s/service.yaml
 # Verify
 kubectl get pods -l app=demo-k8s-api
 ./scripts/validate.sh
-```
+
 
 #### 2. Rolling Update (v2.0)
 
-```bash
+
 # Build v2.0
 docker build --build-arg APP_VERSION=2.0 -t lathiya97/demo-k8s-api:2.0 -f docker/Dockerfile .
 minikube image load lathiya97/demo-k8s-api:2.0
@@ -68,13 +66,13 @@ kubectl rollout status deployment/demo-k8s-api
 
 # Verify
 curl $(minikube service demo-k8s-api-svc --url)/version
-```
 
-The rolling update uses `maxSurge: 1` and `maxUnavailable: 0`, meaning Kubernetes creates one new pod at a time and only removes old pods after the new ones pass readiness checks — ensuring zero downtime.
+
+In rolling update, maxSurge: 1 and maxUnavailable: 0 are used. This means Kubernetes creates one new pod at a time. It removes old pod only after the new pod is ready and passes readiness check.
+Because of this, there is no downtime. The application keeps running without stopping.
 
 #### 3. Simulate Failed Release
 
-```bash
 # Build the "bad" image
 docker build --build-arg APP_VERSION=1.2-bad -t lathiya97/demo-k8s-api:bad -f docker/Dockerfile .
 minikube image load lathiya97/demo-k8s-api:bad
@@ -90,15 +88,14 @@ kubectl logs <failing-pod-name>
 # Run validation — exits with code 1
 ./scripts/validate.sh
 echo $?   # Output: 1
-```
 
-The "bad" version sets `SIMULATE_FAILURE=true`, causing `/health` and `/ready` to return 500/503. The readiness probe blocks traffic routing, and the liveness probe triggers restarts leading to `CrashLoopBackOff`.
+
+In the "bad" version, SIMULATE_FAILURE=true is set. Because of this, the /health and /ready endpoints return 500 or 503 error. The readiness probe stops traffic from going to this pod. The liveness probe keeps restarting the pod. Due to continuous restarts, the pod goes into CrashLoopBackOff state.
 
 #### 4. Troubleshooting Workflow
 
-When a deployment fails, investigation follows this sequence:
+When a deployment fails, we check the following:
 
-```bash
 # 1. Check pod status overview
 kubectl get pods -l app=demo-k8s-api
 
@@ -113,11 +110,11 @@ kubectl rollout history deployment/demo-k8s-api
 
 # 5. Run automated validation
 ./scripts/validate.sh
-```
+
 
 #### 5. Rollback and Recovery
 
-```bash
+
 # Rollback to previous healthy revision
 kubectl rollout undo deployment/demo-k8s-api
 
@@ -127,64 +124,57 @@ kubectl rollout status deployment/demo-k8s-api
 # Validate recovery
 ./scripts/validate.sh
 echo $?   # Output: 0
-```
+
 
 ## Rollback Decision Process
 
-A rollback is triggered when any of these conditions are detected:
+Rollback will start if any of these problems happen:
 
-1. **Readiness probe failures** — New pods don't become Ready within expected timeframe
-2. **CrashLoopBackOff** — Containers crash repeatedly after starting
+1. **Readiness probe failures** - New pods do not become Ready in expected time.
+2. **CrashLoopBackOff** - Containers keep crashing again and again after start.
 3. **Validation script returns exit 1** — Automated health check fails
-4. **Rollout timeout** — `kubectl rollout status` doesn't complete within 120 seconds
+4. **Rollout timeout** — `kubectl rollout status` does not complete within 120 seconds
 
-```
+
 Deploy new version
     │
-    ▼
 Run validate.sh
     │
-    ├── Exit 0 → ✅ Healthy — proceed
+    ├── Exit 0 -> Healthy — proceed
     │
-    └── Exit 1 → ❌ Unhealthy
+    └── Exit 1 -> Unhealthy
                     │
-                    ▼
               kubectl rollout undo
                     │
-                    ▼
-              Re-run validate.sh → Confirm recovery
-```
+              Re-run validate.sh -> Confirm recovery
 
-In the CI/CD pipeline, the CD workflow automates this: it runs `validate.sh` after deployment and triggers an automatic rollback if validation fails.
+
+In the CI/CD pipeline, the CD workflow does this automatically. After deployment, it runs validate.sh. If the validation fails, it automatically starts a rollback.
 
 ## Validation Script
 
 `scripts/validate.sh` performs 5 checks:
 
-1. **Rollout status** — Confirms the deployment rollout completed
-2. **Replica readiness** — Verifies desired replicas == ready replicas
+1. **Rollout status** — Checks if the deployment finished
+2. **Replica readiness** — Makes sure desired replicas match ready replicas.
 3. **CrashLoopBackOff detection** — Scans for pods stuck in crash loops
-4. **Restart count** — Warns if any pod has excessive restarts (>3)
-5. **Image version** — Displays running image versions for traceability
+4. **Restart count** — Warns if any pod has restarted too many times
+5. **Image version** — Shows the running image versions for tracking.
 
-Returns exit code `0` (healthy) or `1` (unhealthy).
+Returns exit code: 0 means healthy, and 1 means unhealthy.
 
-```bash
-./scripts/validate.sh                         # Uses defaults (demo-k8s-api, default namespace)
-./scripts/validate.sh demo-k8s-api default    # Explicit deployment and namespace
-```
 
 ## CI/CD Pipeline (GitHub Actions)
 
 ### CI Workflow (`.github/workflows/ci.yaml`)
-- **Trigger**: Push to `main` or version tag (`v*.*`)
-- **Actions**: Builds Docker image, tags with version + commit SHA, pushes to Docker Hub
-- **PR builds**: Build-only (no push) to validate Dockerfile
+- **Trigger**: on Push to `main` or version tag (`v*.*`)
+- **Steps**: Build Docker image, tag with version and commit SHA, push to Docker Hub
+- **PR builds**: Only build (no push) to check Dockerfile
 
 ### CD Workflow (`.github/workflows/cd.yaml`)
-- **Trigger**: After successful CI run
-- **Actions**: Applies K8s manifests, waits for rollout, runs validation script
-- **Auto-rollback**: If `validate.sh` returns exit 1, automatically rolls back
+- **Trigger**: Runs after CI succeeds
+- **Steps**: Applies K8s manifests, waits for rollout, runs validation script
+- **Auto-rollback**: If `validate.sh` returns exit 1, rollback happens automatically
 
 ### Required GitHub Secrets
 
@@ -196,16 +186,15 @@ Returns exit code `0` (healthy) or `1` (unhealthy).
 
 ## Git Tag Traceability
 
-```bash
+
 git tag              # List all release tags
 git show v1.0        # View tag details and linked commit
-```
 
-Each Git tag maps 1:1 to a Docker image tag. The CI pipeline also stamps every image with the commit SHA, providing two levels of traceability: semantic version for humans, commit hash for exact code reference.
+
+Each Git tag matches 1:1 to a Docker image tag. The CI pipeline also adds the commit SHA to every image.
 
 ## Project Structure
 
-```
 .
 ├── app/
 │   ├── app.py                    # Flask API with health/readiness probes
@@ -223,27 +212,3 @@ Each Git tag maps 1:1 to a Docker image tag. The CI pipeline also stamps every i
 │   ├── ci.yaml                   # Build & push pipeline
 │   └── cd.yaml                   # Deploy & validate pipeline
 └── README.md
-```
-
-## Assumptions
-
-1. **Local cluster**: Minikube with images loaded via `minikube image load` rather than registry pull
-2. **Single namespace**: `default` namespace for simplicity; production would use dedicated namespaces with RBAC
-3. **NodePort service**: For local minikube access; production would use Ingress or LoadBalancer
-4. **3 replicas**: Demonstrates rolling update behavior; production count depends on traffic and HA requirements
-5. **Plain YAML manifests**: No Helm, to demonstrate core Kubernetes concepts directly
-6. **No secrets management**: Demo API has no sensitive config; production would use K8s Secrets or Vault
-
-## Production Readiness Improvements
-
-If this were a production system, I would add:
-
-- **Helm charts** for templated deployments across environments (dev/staging/prod)
-- **Horizontal Pod Autoscaler (HPA)** for load-based scaling
-- **Pod Disruption Budgets (PDB)** to maintain availability during node maintenance
-- **Network Policies** to restrict pod-to-pod communication
-- **Canary deployments** using Argo Rollouts or Flagger for progressive delivery
-- **Image vulnerability scanning** (Trivy/Snyk) in the CI pipeline
-- **Prometheus + Grafana** for metrics, alerting, and deployment dashboards
-- **GitOps with ArgoCD** for declarative, auditable, drift-detected deployments
-- **Namespace isolation with RBAC** for multi-team environments
